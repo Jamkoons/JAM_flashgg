@@ -168,6 +168,8 @@ namespace flashgg {
 
       bool hasGoodElec = false;  bool hasVetoElec = false;
       bool hasGoodMuons = false;
+      
+      bool debug_ = false;
 
       FileInPath tthVstHDNNfile_;
       std::vector<double> tthVstHDNN_global_mean_;
@@ -779,6 +781,9 @@ namespace flashgg {
       
       std::vector<float> bTags;
       std::vector<float> bTags_noBB;
+      float maxBTagVal_noBB_ = -1000.0;
+      float secondMaxBTagVal_noBB_ = -1000.0;
+      int number_of_leptons_tight = 0;
       
       /* ---- ---- ---- ---- ---- ---- ---- ---- ---- --
          ---- ---- ---- ---- - JETS - ---- ---- ---- ---
@@ -830,10 +835,9 @@ namespace flashgg {
             
           if(bTag_ == "pfDeepCSV") bDiscriminatorValue = thejet->bDiscriminator("pfDeepCSVJetTags:probb")+thejet->bDiscriminator("pfDeepCSVJetTags:probbb") ;
           else  bDiscriminatorValue = thejet->bDiscriminator( bTag_ );
-                    
+          
           if(bTag_ == "pfDeepCSV") bDiscriminatorValue_noBB = thejet->bDiscriminator("pfDeepCSVJetTags:probb");
           else  bDiscriminatorValue_noBB = thejet->bDiscriminator( bTag_ );
-          
         
           bDiscriminatorValue >= 0. ? bTags.push_back(bDiscriminatorValue) : bTags.push_back(-1.);
           bDiscriminatorValue_noBB >= 0. ? bTags_noBB.push_back(bDiscriminatorValue_noBB) : bTags_noBB.push_back(-1.);
@@ -935,6 +939,15 @@ namespace flashgg {
       MetPt_ = METs->ptrAt( 0 ) -> getCorPt();
       MetPhi_ = METs->ptrAt( 0 ) -> phi();
       
+      // sort bTags_noBB container by value
+      std::sort(bTags.begin(),bTags.end(),std::greater<float>());
+      std::sort(bTags_noBB.begin(),bTags_noBB.end(),std::greater<float>());
+      
+      maxBTagVal_noBB_ = bTags_noBB.size() > 0 ? bTags_noBB[0] : -1.;
+      secondMaxBTagVal_noBB_ = bTags_noBB.size() > 1 ? bTags_noBB[1]: -1.;
+      
+      number_of_leptons_tight = goodMuons_tight.size() + goodElectrons_tight.size();
+      
       std::vector<double> global_features_ttH_vs_tH;
       global_features_ttH_vs_tH.resize(23);
       global_features_ttH_vs_tH[0] = dipho->leadingPhoton()->eta();
@@ -952,10 +965,10 @@ namespace flashgg {
       global_features_ttH_vs_tH[12] = dipho->rapidity();
       global_features_ttH_vs_tH[13] = dipho->pt()/dipho->mass();
       global_features_ttH_vs_tH[14] = deltaR( dipho->leadingPhoton()->eta(),dipho->leadingPhoton()->phi(), dipho->subLeadingPhoton()->eta(),dipho->subLeadingPhoton()->phi());
-      global_features_ttH_vs_tH[15] = bTags_noBB.size() > 0 ? bTags_noBB[0] : -1.;
-      global_features_ttH_vs_tH[16] = bTags_noBB.size() > 1 ? bTags_noBB[1]: -1.;
+      global_features_ttH_vs_tH[15] = maxBTagVal_noBB_;
+      global_features_ttH_vs_tH[16] = secondMaxBTagVal_noBB_;
       global_features_ttH_vs_tH[17] = number_of_jets;
-      global_features_ttH_vs_tH[18] = float(goodMuons_tight.size() + goodElectrons_tight.size());
+      global_features_ttH_vs_tH[18] = number_of_leptons_tight;
       
       // SelJetVect_EtaSorted.at(0)->eta()
       // SelJetVect_EtaSorted.at(0)->pt()
@@ -966,15 +979,37 @@ namespace flashgg {
       double lep1_charge, lep2_charge;
       calculate_lepton_charges(lep1_charge, lep2_charge, goodMuons, goodElectrons);
       
+      double forward_jet_pt, forward_jet_eta;
+      // using SelJetVect_EtaSorted here as it has been checked if most forward overlaps with most b-tagged
+      calculate_forward_jet_features(forward_jet_pt, forward_jet_eta, SelJetVect_EtaSorted, "pfDeepCSVJetTags:probb", maxBTagVal_noBB_);
+      
       global_features_ttH_vs_tH[19] = lep1_charge;
       global_features_ttH_vs_tH[20] = lep2_charge;
-      global_features_ttH_vs_tH[21] = SelJetVect_EtaSorted.at(0)->eta();
-      global_features_ttH_vs_tH[22] = SelJetVect_EtaSorted.at(0)->pt(); 
+      global_features_ttH_vs_tH[21] = forward_jet_eta;
+      global_features_ttH_vs_tH[22] = forward_jet_pt; 
       
-      dnn_ttH_vs_tH->SetInputs(SelJetVect_PtSorted, goodMuons, goodElectrons, global_features_ttH_vs_tH);
+      dnn_ttH_vs_tH->SetInputs(SelJetVect, goodMuons, goodElectrons, global_features_ttH_vs_tH);
       ttH_vs_tH_dnn_score = dnn_ttH_vs_tH->EvaluateDNN();
+      
+
+      
 
       if( photonSelection ) {
+          
+          if(debug_){
+              cout << " " << endl;
+              cout << "lep1_charge = " <<  lep1_charge << endl;
+              cout << "lep2_charge = " <<  lep2_charge << endl;
+              cout << "forward_jet_eta = " << forward_jet_eta <<endl;
+              cout << "forward_jet_pt = " << forward_jet_pt <<endl;
+              cout << "number_of_jets = " << number_of_jets << endl;
+              cout << "maxBTagVal_noBB_ = " << maxBTagVal_noBB_ << endl;
+              cout << "secondMaxBTagVal_noBB_ = " << secondMaxBTagVal_noBB_ << endl;
+              cout << "number_of_leptons_tight = " << number_of_leptons_tight << endl;
+              cout << "ttH_vs_tH_dnn_score = " << ttH_vs_tH_dnn_score << endl;
+
+              cout << " " << endl;
+          }
           
           // cout << " ttH_vs_tH_dnn_score = " << ttH_vs_tH_dnn_score << endl;
       
